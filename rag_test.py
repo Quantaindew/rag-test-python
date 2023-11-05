@@ -19,13 +19,17 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.schema.output_parser import StrOutputParser
 from langchain.schema.runnable import RunnablePassthrough, RunnableLambda
 from langchain.vectorstores import FAISS
+from langchain.retrievers import SVMRetriever
+from langchain.embeddings import OpenAIEmbeddings
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 from dotenv import load_dotenv
 
 load_dotenv()  # take environment variables from .env.
 
-vectorstore = FAISS.from_texts(["harrison worked at kensho"], embedding=OpenAIEmbeddings())
-retriever = vectorstore.as_retriever()
-
+retriever = SVMRetriever.from_texts(
+    ["harrison worked at kensho", "He is 6'4 and 20 years old"], embeddings=OpenAIEmbeddings(), dual=False
+)
 template = """Answer the question based only on the following context:
 {context}
 
@@ -44,116 +48,116 @@ chain = (
 
 chain.invoke("where did harrison work?")
 
-template = """Answer the question based only on the following context:
-{context}
+# template = """Answer the question based only on the following context:
+# {context}
 
-Question: {question}
+# Question: {question}
 
-Answer in the following language: {language}
-"""
-prompt = ChatPromptTemplate.from_template(template)
+# Answer in the following language: {language}
+# """
+# prompt = ChatPromptTemplate.from_template(template)
 
-chain = {
-    "context": itemgetter("question") | retriever,
-    "question": itemgetter("question"),
-    "language": itemgetter("language")
-} | prompt | model | StrOutputParser()
+# chain = {
+#     "context": itemgetter("question") | retriever,
+#     "question": itemgetter("question"),
+#     "language": itemgetter("language")
+# } | prompt | model | StrOutputParser()
 
-chain.invoke({"question": "where did harrison work", "language": "french"})
+# chain.invoke({"question": "where did harrison work", "language": "french"})
 
-from langchain.schema.runnable import RunnableMap
-from langchain.schema import format_document
+# from langchain.schema.runnable import RunnableMap
+# from langchain.schema import format_document
 
-from langchain.prompts.prompt import PromptTemplate
+# from langchain.prompts.prompt import PromptTemplate
 
-_template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
+# _template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
 
-Chat History:
-{chat_history}
-Follow Up Input: {question}
-Standalone question:"""
-CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
+# Chat History:
+# {chat_history}
+# Follow Up Input: {question}
+# Standalone question:"""
+# CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
 
-template = """Answer the question based only on the following context:
-{context}
+# template = """Answer the question based only on the following context:
+# {context}
 
-Question: {question}
-"""
-ANSWER_PROMPT = ChatPromptTemplate.from_template(template)
+# Question: {question}
+# """
+# ANSWER_PROMPT = ChatPromptTemplate.from_template(template)
 
-DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template="{page_content}")
-def _combine_documents(docs, document_prompt = DEFAULT_DOCUMENT_PROMPT, document_separator="\n\n"):
-    doc_strings = [format_document(doc, document_prompt) for doc in docs]
-    return document_separator.join(doc_strings)
+# DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template="{page_content}")
+# def _combine_documents(docs, document_prompt = DEFAULT_DOCUMENT_PROMPT, document_separator="\n\n"):
+#     doc_strings = [format_document(doc, document_prompt) for doc in docs]
+#     return document_separator.join(doc_strings)
 
-from typing import Tuple, List
-def _format_chat_history(chat_history: List[Tuple]) -> str:
-    buffer = ""
-    for dialogue_turn in chat_history:
-        human = "Human: " + dialogue_turn[0]
-        ai = "Assistant: " + dialogue_turn[1]
-        buffer += "\n" + "\n".join([human, ai])
-    return buffer
+# from typing import Tuple, List
+# def _format_chat_history(chat_history: List[Tuple]) -> str:
+#     buffer = ""
+#     for dialogue_turn in chat_history:
+#         human = "Human: " + dialogue_turn[0]
+#         ai = "Assistant: " + dialogue_turn[1]
+#         buffer += "\n" + "\n".join([human, ai])
+#     return buffer
 
-_inputs = RunnableMap(
-    standalone_question=RunnablePassthrough.assign(
-        chat_history=lambda x: _format_chat_history(x['chat_history'])
-    ) | CONDENSE_QUESTION_PROMPT | ChatOpenAI(temperature=0) | StrOutputParser(),
-)
-_context = {
-    "context": itemgetter("standalone_question") | retriever | _combine_documents,
-    "question": lambda x: x["standalone_question"]
-}
-conversational_qa_chain = _inputs | _context | ANSWER_PROMPT | ChatOpenAI()
+# _inputs = RunnableMap(
+#     standalone_question=RunnablePassthrough.assign(
+#         chat_history=lambda x: _format_chat_history(x['chat_history'])
+#     ) | CONDENSE_QUESTION_PROMPT | ChatOpenAI(temperature=0) | StrOutputParser(),
+# )
+# _context = {
+#     "context": itemgetter("standalone_question") | retriever | _combine_documents,
+#     "question": lambda x: x["standalone_question"]
+# }
+# conversational_qa_chain = _inputs | _context | ANSWER_PROMPT | ChatOpenAI()
 
-conversational_qa_chain.invoke({
-    "question": "where did harrison work?",
-    "chat_history": [],
-})
+# conversational_qa_chain.invoke({
+#     "question": "where did harrison work?",
+#     "chat_history": [],
+# })
 
-from operator import itemgetter
-from langchain.memory import ConversationBufferMemory
+# from operator import itemgetter
+# from langchain.memory import ConversationBufferMemory
 
-memory = ConversationBufferMemory(return_messages=True, output_key="answer", input_key="question")
+# memory = ConversationBufferMemory(return_messages=True, output_key="answer", input_key="question")
 
-# First we add a step to load memory
-# This adds a "memory" key to the input object
-loaded_memory = RunnablePassthrough.assign(
-    chat_history=RunnableLambda(memory.load_memory_variables) | itemgetter("history"),
-)
-# Now we calculate the standalone question
-standalone_question = {
-    "standalone_question": {
-        "question": lambda x: x["question"],
-        "chat_history": lambda x: _format_chat_history(x['chat_history'])
-    } | CONDENSE_QUESTION_PROMPT | ChatOpenAI(temperature=0) | StrOutputParser(),
-}
-# Now we retrieve the documents
-retrieved_documents = {
-    "docs": itemgetter("standalone_question") | retriever,
-    "question": lambda x: x["standalone_question"]
-}
-# Now we construct the inputs for the final prompt
-final_inputs = {
-    "context": lambda x: _combine_documents(x["docs"]),
-    "question": itemgetter("question")
-}
-# And finally, we do the part that returns the answers
-answer = {
-    "answer": final_inputs | ANSWER_PROMPT | ChatOpenAI(),
-    "docs": itemgetter("docs"),
-}
-# And now we put it all together!
-final_chain = loaded_memory | standalone_question | retrieved_documents | answer
+# # First we add a step to load memory
+# # This adds a "memory" key to the input object
+# loaded_memory = RunnablePassthrough.assign(
+#     chat_history=RunnableLambda(memory.load_memory_variables) | itemgetter("history"),
+# )
+# # Now we calculate the standalone question
+# standalone_question = {
+#     "standalone_question": {
+#         "question": lambda x: x["question"],
+#         "chat_history": lambda x: _format_chat_history(x['chat_history'])
+#     } | CONDENSE_QUESTION_PROMPT | ChatOpenAI(temperature=0) | StrOutputParser(),
+# }
+# # Now we retrieve the documents
+# retrieved_documents = {
+#     "docs": itemgetter("standalone_question") | retriever,
+#     "question": lambda x: x["standalone_question"]
+# }
+# # Now we construct the inputs for the final prompt
+# final_inputs = {
+#     "context": lambda x: _combine_documents(x["docs"]),
+#     "question": itemgetter("question")
+# }
+# # And finally, we do the part that returns the answers
+# answer = {
+#     "answer": final_inputs | ANSWER_PROMPT | ChatOpenAI(),
+#     "docs": itemgetter("docs"),
+# }
+# # And now we put it all together!
+# final_chain = loaded_memory | standalone_question | retrieved_documents | answer
 
-inputs = {"question": "where did harrison work?"}
-result = final_chain.invoke(inputs)
-result
+# inputs = {"question": "where did harrison work?"}
+# result = final_chain.invoke(inputs)
+# result
 
-# Note that the memory does not save automatically
-# This will be improved in the future
-# For now you need to save it yourself
-memory.save_context(inputs, {"answer": result["answer"].content})
+# # Note that the memory does not save automatically
+# # This will be improved in the future
+# # For now you need to save it yourself
+# memory.save_context(inputs, {"answer": result["answer"].content})
 
-memory.load_memory_variables({})
+# memory.load_memory_variables({})
 
