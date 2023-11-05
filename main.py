@@ -13,6 +13,10 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 from langchain.schema.runnable import RunnableMap
 from langchain.schema import format_document
 from typing import Tuple, List
+from operator import itemgetter
+from langchain.memory import ConversationBufferMemory
+
+
 from dotenv import load_dotenv
 
 load_dotenv()  # take environment variables from .env.
